@@ -180,21 +180,18 @@ fn initialize_csv(filename: &str) -> Result<(), Box<dyn Error>> {
     let path = Path::new(filename);
 
     if !path.exists() {
-        // File does not exist, create it and add headers
         let file = File::create(filename)?;
-        let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file); // Disable auto headers
-        wtr.write_record(&["id", "name"])?; // Write headers manually
+        let mut wtr = WriterBuilder::new().has_headers(false).from_writer(file); 
+        wtr.write_record(&["id", "name"])?; 
         wtr.flush()?;
         println!("Created {} with headers.", filename);
     } else {
-        // File exists, check if it's empty
         let file = File::open(filename)?;
         let reader = BufReader::new(&file);
 
         if reader.lines().next().is_none() {
-            // File is empty, add headers
             let mut file = OpenOptions::new().write(true).open(filename)?;
-            writeln!(file, "id,name")?; // Manually write headers
+            writeln!(file, "id,name")?; 
             println!("{} was empty. Added headers.", filename);
         } else {
             println!("{} already exists and is not empty.", filename);
@@ -230,7 +227,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let id = input.trim().to_uppercase().to_string();
 
         if id.is_empty() {
-            println!("{}", "ID cannot be empty!\n".red().bold()); // Red error message
+            println!("{}", "ID cannot be empty!\n".red().bold()); 
             continue;
         }
 
