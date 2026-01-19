@@ -7,6 +7,10 @@ use std::path::Path;
 use colored::Colorize;
 use csv::{Writer, WriterBuilder};
 
+const COMPLETE_LIST_CSV: &str = "dept_connect_complete.csv";
+const SCANNED_CSV: &str = "scanned.csv";
+const SPECIAL_PREFIX: &str = "!";
+
 struct Student {
     id: String,
     name: String,
@@ -18,6 +22,9 @@ fn read_string() -> String {
     input.trim().to_string()
 }
 
+/// Load the complete list of students from a CSV file
+/// This list is used to verify if a scanned ID is valid
+/// and to retrieve the corresponding student name.
 fn load_complete_list(filename: &str) -> Result<Vec<Student>, Box<dyn Error>> {
     let file = File::open(filename)?;
     let reader = BufReader::new(file);
@@ -36,11 +43,14 @@ fn load_complete_list(filename: &str) -> Result<Vec<Student>, Box<dyn Error>> {
     Ok(students)
 }
 
+/// Save a scanned student's information to the CSV file
+/// We want to save immediately to prevent data loss in case of crashes.
+/// Although this is highly inefficient, it is acceptable for now
 fn save_to_csv(student: &Student, access_type: &str) -> Result<(), Box<dyn Error>> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("scanned.csv")?;
+        .open(SCANNED_CSV)?;
 
     let mut wtr = Writer::from_writer(file);
     wtr.write_record(&[&student.id, &student.name, access_type])?;
@@ -73,11 +83,11 @@ fn initialize_csv(filename: &str) -> Result<(), Box<dyn Error>> {
 }
 
 fn already_scanned(id: &str) -> Result<bool, Box<dyn Error>> {
-    let file = File::open("scanned.csv")?;
+    let file = File::open(SCANNED_CSV)?;
     let reader = BufReader::new(file);
     for line in reader.lines().skip(1) {
         let line = line?;
-        let fields: Vec<&str> = line.split(',').collect();
+        let fields = line.split(',').collect::<Vec<&str>>();
         if fields[0] == id {
             return Ok(true);
         }
@@ -85,8 +95,12 @@ fn already_scanned(id: &str) -> Result<bool, Box<dyn Error>> {
     Ok(false)
 }
 
+/// Again we have to assume that the program might crash (the script exits) 
+/// at any time or that the scanned.csv file might be modified externally
+/// Hence we have to read the file every time we want to get the total count
+/// instead of keeping a running count in memory
 fn get_total_scanned() -> Result<i32, Box<dyn Error>> {
-    let file = File::open("scanned.csv")?;
+    let file = File::open(SCANNED_CSV)?;
     let reader = BufReader::new(file);
     let mut count = 0;
     for _ in reader.lines().skip(1) {
@@ -97,17 +111,19 @@ fn get_total_scanned() -> Result<i32, Box<dyn Error>> {
 
 fn attempt_save(student: &Student, access_type: &str) -> Result<(), Box<dyn Error>> {
     let count = get_total_scanned()?;
+    let name = if student.name.is_empty() {
+        "".to_string()
+    } else {
+        format!(" ({})", student.name)
+    };
+    // nasty way to print colored output but that's how the colored crate works
     if already_scanned(&student.id)? {
         println!(
             "{}",
             format!(
                 "ID {}{} has already scanned. (total scanned: {})",
                 student.id,
-                if student.name.is_empty() {
-                    "".to_string()
-                } else {
-                    format!(" ({})", student.name)
-                },
+                name,
                 count
             )
             .red()
@@ -120,11 +136,7 @@ fn attempt_save(student: &Student, access_type: &str) -> Result<(), Box<dyn Erro
             format!(
                 "ID {}{} registered successfully. (total scanned: {})",
                 student.id,
-                if student.name.is_empty() {
-                    "".to_string()
-                } else {
-                    format!(" ({})", student.name)
-                },
+                name,
                 count + 1
             )
             .green()
@@ -136,10 +148,10 @@ fn attempt_save(student: &Student, access_type: &str) -> Result<(), Box<dyn Erro
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let complete_list = load_complete_list("dept_connect_complete.csv")?;
+    let complete_list = load_complete_list(COMPLETE_LIST_CSV)?;
     let student_ids: HashSet<String> = complete_list.iter().map(|s| s.id.clone()).collect();
 
-    initialize_csv("scanned.csv")?;
+    initialize_csv(SCANNED_CSV)?;
     loop {
         print!("Enter ID: ");
         io::stdout().flush()?;
@@ -149,9 +161,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", "ID cannot be empty!\n".red().bold());
             continue;
         }
-        if id.starts_with("ALLOW") {
+
+        // This is a special case for allowing certain IDs that are not in the complete list to scan
+        // However even for these IDs we still want to prevent duplicate scans
+        if id.starts_with(SPECIAL_PREFIX) {
             // skip first 5 characters
-            let id = &id[5..];
+            let id = &id[1 + SPECIAL_PREFIX.len()..];
+            dbg!(&id);
             if already_scanned(id)? {
                 println!(
                     "{}",
